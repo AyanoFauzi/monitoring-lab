@@ -1,0 +1,7 @@
+# Berkas sistem
+.DS_Store
+Thumbs.db
+
+# File lingkungan yang mungkin berisi rahasia
+.env
+*.env
