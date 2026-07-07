@@ -1,0 +1,13 @@
+filebeat.inputs:
+  - type: filestream
+    id: dummy-app-log
+    enabled: true
+    paths:
+      - /logs/app.log
+    parsers:
+      - ndjson:
+          target: ""
+          add_error_key: true
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
