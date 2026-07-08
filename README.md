@@ -1,63 +1,69 @@
-# Lab 1: Fondasi Monitoring dengan Docker, Prometheus, dan Grafana
+# Lab 2: Metrik dan Log, Menambah Pipeline ELK
 
-Proyek belajar membangun stack monitoring berbasis pull dari nol, sebagai
-bagian dari perjalanan memperkuat jalur IT Application Support dan IT
-Operations. Lab ini menjalankan sebuah aplikasi dummy yang mengekspos metrik,
-lalu memantau metrik itu dengan Prometheus, dan memvisualkannya di Grafana,
-semuanya di dalam Docker.
+Kelanjutan dari Lab 1. Selain memantau metrik dengan Prometheus dan Grafana,
+lab ini menambahkan pipeline log dengan ELK, yaitu Elasticsearch, Kibana, dan
+Filebeat, semuanya di dalam Docker. Aplikasi dummy kini menulis log terstruktur,
+Filebeat mendorongnya ke Elasticsearch, dan Kibana menampilkannya.
 
 ## Arsitektur
 
-Aplikasi dummy mengekspos metrik di endpoint /metrics. Prometheus secara
-terjadwal menarik (scrape) metrik itu dan menyimpannya sebagai time series.
-Grafana membaca data dari Prometheus dan menampilkannya sebagai dashboard.
+Dua pipeline berdampingan.
 
-Grafana  ->  Prometheus  ->  Aplikasi dummy (/metrics)
+Metrik (model pull): Aplikasi mengekspos /metrics, Prometheus men-scrape secara
+terjadwal, Grafana memvisualkan.
 
-## Komponen
+Log (model push): Aplikasi menulis log JSON ke file di volume bersama, Filebeat
+membacanya lalu mendorong ke Elasticsearch, Kibana menampilkan dan menyaring.
 
-- app/ Aplikasi dummy berbasis Python Flask, terinstrumentasi dengan
-  prometheus_client, mengekspos metrik app_requests_total di /metrics.
-- prometheus/prometheus.yml Konfigurasi Prometheus, men-scrape aplikasi
-  di alamat app:8000 setiap 15 detik.
-- grafana/dashboards/dummy-app.json Ekspor dashboard Grafana agar dapat
-  diimpor ulang.
-- docker-compose.yml Orkestrasi ketiga service dalam satu jaringan.
-- automate.sh Skrip bash untuk menyalakan seluruh stack dengan satu perintah.
+## Komponen baru di Lab 2
+
+- app/app.py Ditambah structured logging, menulis log JSON per baris ke /logs/app.log.
+- filebeat/filebeat.yml Konfigurasi Filebeat, membaca /logs/app.log dengan parser
+  ndjson, lalu output ke Elasticsearch.
+- Service elasticsearch, kibana, dan filebeat di docker-compose.yml.
+- Volume bersama logs untuk menjembatani aplikasi dan Filebeat.
 
 ## Cara menjalankan
 
-Prasyarat: Docker dan Docker Compose terpasang.
+Prasyarat: Docker dan Docker Compose terpasang, serta vm.max_map_count minimal
+262144 (di banyak sistem Linux nilai ini sudah memadai secara bawaan).
 
-  git clone <url-repo-ini>
-  cd lab-01
-  ./automate.sh
+    git clone <url-repo-ini>
+    cd lab-02
+    docker compose up -d --build
 
 Lalu buka di browser:
 
 - Aplikasi: http://localhost:8000/
 - Prometheus: http://localhost:9090
 - Grafana: http://localhost:3000 (login awal admin / admin)
+- Kibana: http://localhost:5601
 
-Untuk dashboard Grafana, impor manual berkas grafana/dashboards/dummy-app.json
-lewat menu Import di Grafana, lalu pilih Prometheus sebagai data source.
+Di Kibana, buka Discover, buat data view dengan pola indeks filebeat-* dan
+timestamp field @timestamp, lalu perluas rentang waktu untuk melihat log.
 
 ## Konsep yang dipelajari
 
-- Model pull pada Prometheus dan perbedaannya dengan model push pada ELK.
-- Perbedaan metrik tunggal dan time series.
-- Peran label dalam membentuk identitas time series.
-- Jaringan antar container pada Docker Compose (memanggil service lewat namanya).
-- Perbedaan bind mount dan named volume.
+- Beda peran metrik dan log, dan pasangannya masing masing (Prometheus-Grafana,
+  Elasticsearch-Kibana).
+- Elasticsearch sebagai mesin penyimpan dan pencari, Kibana sebagai penampil.
+- Structured logging dengan JSON, dan parser ndjson pada Filebeat.
+- Filebeat sebagai pengirim log, wujud nyata model push.
+- API HTTP sebagai loket bersama tempat Filebeat, curl, dan Kibana menghubungi
+  Elasticsearch.
 
 ## Batasan dan kejujuran
 
 Proyek ini adalah lab belajar, bukan sistem production. Yang belum tercakup:
 
-- Belum ada alerting.
-- Belum ada penyimpanan metrik jangka panjang.
-- Belum ada pengamanan (Prometheus dan Grafana berjalan tanpa hardening).
-- Aplikasi yang dipantau adalah aplikasi dummy, bukan layanan nyata.
-- Impor dashboard Grafana masih manual, belum otomatis via provisioning.
+- Keamanan Elasticsearch sengaja dimatikan (xpack.security.enabled=false) untuk
+  menyederhanakan setup lokal. Ini TIDAK boleh dipakai di production, yang wajib
+  memakai autentikasi dan enkripsi.
+- Belum ada Logstash. Log langsung dari Filebeat ke Elasticsearch, memungkinkan
+  karena log sudah terstruktur JSON. Logstash dibutuhkan saat log belum
+  terstruktur dan perlu diurai lebih dulu.
+- Belum ada alerting maupun dashboard log.
+- Data view Kibana masih dibuat manual, belum otomatis via provisioning.
+- Aplikasi yang dipantau adalah dummy, bukan layanan nyata.
 
-Hal hal di atas akan dibahas pada lab lab berikutnya.
+Hal hal di atas dibahas pada lab lab berikutnya.
