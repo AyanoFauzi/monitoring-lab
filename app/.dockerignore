@@ -1,0 +1,15 @@
+# Berkas cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Git
+.git/
+.gitignore
+
+# File lingkungan yang mungkin berisi rahasia
+.env
+*.env
+
+# Berkas sistem
+.DS_Store

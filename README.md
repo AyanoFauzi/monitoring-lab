@@ -1,35 +1,45 @@
-# Lab 2: Metrik dan Log, Menambah Pipeline ELK
+# Lab 3: Containerisasi yang Lebih Benar
 
-Kelanjutan dari Lab 1. Selain memantau metrik dengan Prometheus dan Grafana,
-lab ini menambahkan pipeline log dengan ELK, yaitu Elasticsearch, Kibana, dan
-Filebeat, semuanya di dalam Docker. Aplikasi dummy kini menulis log terstruktur,
-Filebeat mendorongnya ke Elasticsearch, dan Kibana menampilkannya.
+Kelanjutan dari Lab 2. Stack monitoring dan logging tetap sama, tetapi container
+aplikasi dinaikkan kualitasnya dari sekadar berjalan menjadi dikerjakan dengan
+praktik yang benar. Fokus lab ini bukan menambah komponen, melainkan memperbaiki
+cara aplikasi dikemas dan dijalankan.
 
-## Arsitektur
+## Lima perbaikan yang dikerjakan
 
-Dua pipeline berdampingan.
+1. **Versi pustaka dikunci.** requirements.txt memakai tanda == dengan nomor versi
+   pasti, demi keterulangan. Build kapan pun dan di mana pun menghasilkan versi
+   pustaka yang sama.
+2. **Server production menggantikan server pengembangan.** Flask development server
+   diganti Gunicorn dengan dua worker. Flask sendiri memperingatkan servernya tidak
+   untuk production.
+3. **Container berjalan sebagai non-root.** Dibuat pengguna appuser, folder kerja dan
+   folder log diserahkan kepadanya, lalu proses beralih ke pengguna itu. Prinsip
+   least privilege, memberi hak sekecil mungkin yang cukup untuk bekerja.
+4. **.dockerignore ditambahkan.** Membatasi apa yang ikut ke build context, agar build
+   lebih bersih dan file tak semestinya tidak masuk ke image.
+5. **HEALTHCHECK ditambahkan.** Docker rutin mengetuk endpoint aplikasi untuk menilai
+   apakah layanan benar benar sehat, bukan sekadar prosesnya masih hidup.
 
-Metrik (model pull): Aplikasi mengekspos /metrics, Prometheus men-scrape secara
-terjadwal, Grafana memvisualkan.
+## Temuan tambahan: metrik pada aplikasi multi worker
 
-Log (model push): Aplikasi menulis log JSON ke file di volume bersama, Filebeat
-membacanya lalu mendorong ke Elasticsearch, Kibana menampilkan dan menyaring.
+Setelah beralih ke Gunicorn dengan dua worker, metrik app_requests_total menjadi
+tidak akurat. Penyebabnya, tiap worker adalah proses terpisah dengan memori sendiri,
+sehingga masing masing menyimpan penghitungnya sendiri. Endpoint /metrics yang
+dilayani satu worker hanya melaporkan angka milik worker itu.
 
-## Komponen baru di Lab 2
+Solusinya memakai mode multiproses prometheus_client. Tiap worker menulis metriknya
+ke folder bersama (PROMETHEUS_MULTIPROC_DIR), lalu endpoint /metrics membaca seluruh
+berkas di folder itu dan menjumlahkannya. Berkas gunicorn.conf.py menambahkan kait
+child_exit agar jejak worker yang berhenti dibersihkan, sehingga totalnya tetap akurat.
 
-- app/app.py Ditambah structured logging, menulis log JSON per baris ke /logs/app.log.
-- filebeat/filebeat.yml Konfigurasi Filebeat, membaca /logs/app.log dengan parser
-  ndjson, lalu output ke Elasticsearch.
-- Service elasticsearch, kibana, dan filebeat di docker-compose.yml.
-- Volume bersama logs untuk menjembatani aplikasi dan Filebeat.
+Catatan menarik: log tidak mengalami masalah ini karena ditulis ke file di disk yang
+dibagi bersama, sedangkan metrik disimpan di memori proses yang tidak dibagi.
 
 ## Cara menjalankan
 
-Prasyarat: Docker dan Docker Compose terpasang, serta vm.max_map_count minimal
-262144 (di banyak sistem Linux nilai ini sudah memadai secara bawaan).
-
     git clone <url-repo-ini>
-    cd lab-02
+    cd lab-03
     docker compose up -d --build
 
 Lalu buka di browser:
@@ -39,31 +49,31 @@ Lalu buka di browser:
 - Grafana: http://localhost:3000 (login awal admin / admin)
 - Kibana: http://localhost:5601
 
-Di Kibana, buka Discover, buat data view dengan pola indeks filebeat-* dan
-timestamp field @timestamp, lalu perluas rentang waktu untuk melihat log.
+Verifikasi container yang sudah diperketat:
+
+    docker compose ps                          # STATUS menampilkan (healthy)
+    docker compose exec app whoami             # menjawab appuser, bukan root
+    docker compose exec app ls -la /logs       # app.log dimiliki appuser
+    curl -s http://localhost:8000/metrics | grep app_requests_total
 
 ## Konsep yang dipelajari
 
-- Beda peran metrik dan log, dan pasangannya masing masing (Prometheus-Grafana,
-  Elasticsearch-Kibana).
-- Elasticsearch sebagai mesin penyimpan dan pencari, Kibana sebagai penampil.
-- Structured logging dengan JSON, dan parser ndjson pada Filebeat.
-- Filebeat sebagai pengirim log, wujud nyata model push.
-- API HTTP sebagai loket bersama tempat Filebeat, curl, dan Kibana menghubungi
-  Elasticsearch.
+- Beda server pengembangan dan server WSGI production, serta arti app:app pada
+  Gunicorn (nama modul di depan, nama objek di belakang).
+- Prinsip least privilege pada container, dan konsekuensinya terhadap izin file.
+- Named volume mewarisi kepemilikan dari folder di image saat volume masih kosong.
+- Keterulangan lewat penguncian versi, berbeda dari pemisahan lewat environment.
+- Beda "proses hidup" dan "layanan sehat", yang dijembatani HEALTHCHECK.
+- Metrik berbasis memori tidak otomatis akurat pada aplikasi multi proses.
 
 ## Batasan dan kejujuran
 
 Proyek ini adalah lab belajar, bukan sistem production. Yang belum tercakup:
 
-- Keamanan Elasticsearch sengaja dimatikan (xpack.security.enabled=false) untuk
-  menyederhanakan setup lokal. Ini TIDAK boleh dipakai di production, yang wajib
-  memakai autentikasi dan enkripsi.
-- Belum ada Logstash. Log langsung dari Filebeat ke Elasticsearch, memungkinkan
-  karena log sudah terstruktur JSON. Logstash dibutuhkan saat log belum
-  terstruktur dan perlu diurai lebih dulu.
-- Belum ada alerting maupun dashboard log.
-- Data view Kibana masih dibuat manual, belum otomatis via provisioning.
-- Aplikasi yang dipantau adalah dummy, bukan layanan nyata.
+- Keamanan Elasticsearch masih dimatikan, warisan dari Lab 2, hanya untuk belajar.
+- Belum ada CI/CD, pemisahan environment, maupun alerting.
+- Image belum dioptimalkan lebih jauh, misalnya multi-stage build.
+- Belum ada pembatasan sumber daya per container di level Compose.
+- Aplikasi yang dipantau tetap aplikasi dummy, bukan layanan nyata.
 
 Hal hal di atas dibahas pada lab lab berikutnya.

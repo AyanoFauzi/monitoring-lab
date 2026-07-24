@@ -2,7 +2,13 @@ import json
 import logging
 import time
 from flask import Flask
-from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import (
+    Counter,
+    CollectorRegistry,
+    multiprocess,
+    generate_latest,
+    CONTENT_TYPE_LATEST,
+)
 
 app = Flask(__name__)
 
@@ -36,7 +42,10 @@ def home():
 
 @app.route("/metrics")
 def metrics():
-    return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
+    # Kumpulkan metrik dari seluruh worker, bukan hanya worker ini.
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry)
+    return generate_latest(registry), 200, {"Content-Type": CONTENT_TYPE_LATEST}
 
 if __name__ == "__main__":
     log_event("INFO", "Aplikasi dummy mulai berjalan")
